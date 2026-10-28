@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A receipt with a check mark, centred in the 72dp safe zone of the adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,30 L70,30 L70,78 L66,75 L62,78 L58,75 L54,78 L50,75 L46,78 L42,75 L38,78 Z" />
+    <path
+        android:strokeColor="#2563EB"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M45,54 L51,60 L63,46" />
+</vector>
