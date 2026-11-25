@@ -1,5 +1,6 @@
 package com.checkmate.app.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.checkmate.app.data.CheckMateRepository
@@ -33,6 +34,7 @@ data class DraftItem(
 data class SplitUiState(
     val merchantName: String = "",
     val items: List<DraftItem> = emptyList(),
+    val receiptImageUri: Uri? = null,
     val scannedCount: Int = 0,
     val selectedMateId: Long? = null,
     val tipPercent: Int = 0,
@@ -80,6 +82,59 @@ class SplitViewModel(private val repository: CheckMateRepository) : ViewModel() 
             selectedMateId = mates.value.firstOrNull { it.isSelf }?.id,
         )
     }
+
+    /**
+     * Starts a receipt draft using a real captured
+     * or imported image.
+     *
+     * OCR will populate the receipt in the next stage.
+     */
+    fun startReceiptFromImage(uri: Uri) {
+
+        _state.value = SplitUiState(
+            merchantName = "",
+            receiptImageUri = uri,
+
+            items = listOf(
+                DraftItem(
+                    key = nextKey++,
+                    name = "",
+                    priceText = ""
+                )
+            ),
+
+            scannedCount = 0,
+
+            selectedMateId = mates.value
+                .firstOrNull { it.isSelf }
+                ?.id
+        )
+    }
+
+    /**
+     * Starts a new receipt without using the camera.
+     */
+    fun startManualReceipt() {
+
+        _state.value = SplitUiState(
+            merchantName = "",
+
+            items = listOf(
+                DraftItem(
+                    key = nextKey++,
+                    name = "",
+                    priceText = ""
+                )
+            ),
+
+            scannedCount = 0,
+
+            selectedMateId = mates.value
+                .firstOrNull { it.isSelf }
+                ?.id
+        )
+    }
+
 
     // --- Edit receipt ---
 

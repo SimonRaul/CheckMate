@@ -1,33 +1,18 @@
 package com.checkmate.app.ui.screens
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.ImageView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,292 +20,481 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.checkmate.app.data.MockData
-import com.checkmate.app.ui.theme.ScanGlow
-import com.checkmate.app.ui.theme.Success
-import com.checkmate.app.ui.theme.ViewfinderBottom
-import com.checkmate.app.ui.theme.ViewfinderTop
-import kotlinx.coroutines.delay
-import java.util.Locale
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import com.checkmate.app.data.scanner.ReceiptCameraPreview
+import java.io.File
 
-/**
- * Simulated camera: a dark viewfinder showing a mock receipt inside a glowing crop frame.
- * The shutter (or gallery) "captures" it and hands the mock items to the Edit screen.
- */
 @Composable
-fun ScanScreen(onClose: () -> Unit, onCaptured: () -> Unit) {
-    var flashOn by remember { mutableStateOf(false) }
-    var capturing by remember { mutableStateOf(false) }
-    val shutterFlash by animateFloatAsState(
-        targetValue = if (capturing) 0.85f else 0f,
-        animationSpec = tween(durationMillis = 140),
-        label = "shutterFlash",
-    )
+fun ScanScreen(
+    onClose: () -> Unit,
+    onCaptured: (Uri) -> Unit,
+    onManualEntry: () -> Unit,
+) {
+    val context = LocalContext.current
 
-    LaunchedEffect(capturing) {
-        if (capturing) {
-            delay(420)
-            onCaptured()
-            capturing = false
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    var camera by remember {
+        mutableStateOf<Camera?>(null)
+    }
+
+    var imageCapture by remember {
+        mutableStateOf<ImageCapture?>(null)
+    }
+
+    var flashOn by remember {
+        mutableStateOf(false)
+    }
+
+    var isCapturing by remember {
+        mutableStateOf(false)
+    }
+
+    var capturedUriString by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
+
+    val capturedUri =
+        capturedUriString?.let(Uri::parse)
+
+    var errorMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    val permissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+
+            hasCameraPermission = granted
+
+            errorMessage = if (granted) {
+                null
+            } else {
+                "Camera permission denied. You can import a receipt instead."
+            }
         }
+
+    val galleryLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.PickVisualMedia()
+        ) { uri ->
+
+            if (uri != null) {
+                errorMessage = null
+                capturedUriString = uri.toString()
+            }
+        }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission && capturedUri == null) {
+            permissionLauncher.launch(
+                Manifest.permission.CAMERA
+            )
+        }
+    }
+
+    fun resetCapture() {
+        capturedUriString = null
+        camera = null
+        imageCapture = null
+        flashOn = false
+        errorMessage = null
+    }
+
+    fun captureReceipt() {
+
+        val capture = imageCapture ?: return
+
+        if (isCapturing) return
+
+        isCapturing = true
+        errorMessage = null
+
+        val photoFile = try {
+            File.createTempFile(
+                "receipt_",
+                ".jpg",
+                context.cacheDir
+            )
+        } catch (exception: Exception) {
+            isCapturing = false
+            errorMessage = "Unable to create image file."
+            return
+        }
+
+        val outputOptions =
+            ImageCapture.OutputFileOptions.Builder(
+                photoFile
+            ).build()
+
+        capture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageSavedCallback {
+
+                override fun onImageSaved(
+                    output: ImageCapture.OutputFileResults
+                ) {
+                    isCapturing = false
+
+                    camera?.cameraControl?.enableTorch(false)
+                    flashOn = false
+
+                    capturedUriString =
+                        Uri.fromFile(photoFile).toString()
+                }
+
+                override fun onError(
+                    exception: ImageCaptureException
+                ) {
+                    isCapturing = false
+                    photoFile.delete()
+
+                    errorMessage =
+                        exception.message
+                            ?: "Unable to capture receipt."
+                }
+            }
+        )
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(ViewfinderTop, ViewfinderBottom))),
+            .background(Color(0xFF0F1B3D))
     ) {
-        MockReceipt(
-            Modifier
-                .align(Alignment.Center)
-                .offset(y = (-24).dp),
-        )
-        CropFrame(
-            Modifier
-                .align(Alignment.Center)
-                .offset(y = (-24).dp)
-                .size(width = 272.dp, height = 404.dp),
-        )
-        if (flashOn) {
-            Box(Modifier.fillMaxSize().background(Color(0x14FFF4D6)))
+
+        // Real image or live camera preview
+        when {
+            capturedUri != null -> {
+
+                AndroidView(
+                    factory = { viewContext ->
+                        ImageView(viewContext).apply {
+                            scaleType =
+                                ImageView.ScaleType.FIT_CENTER
+                        }
+                    },
+                    update = { imageView ->
+                        imageView.setImageURI(capturedUri)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = 90.dp,
+                            bottom = 170.dp
+                        )
+                )
+            }
+
+            hasCameraPermission -> {
+
+                ReceiptCameraPreview(
+                    modifier = Modifier.fillMaxSize(),
+
+                    onCameraReady = { readyCamera, capture ->
+                        camera = readyCamera
+                        imageCapture = capture
+                        errorMessage = null
+                    },
+
+                    onCameraError = { exception ->
+                        camera = null
+                        imageCapture = null
+
+                        errorMessage =
+                            exception.message
+                                ?: "Camera unavailable."
+                    }
+                )
+
+                // Visual alignment guide
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = (-24).dp)
+                        .fillMaxWidth(0.76f)
+                        .height(380.dp)
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFF4ADE80),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                )
+            }
+
+            else -> {
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(32.dp),
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally
+                ) {
+
+                    Text(
+                        text = "Camera access is required",
+                        color = Color.White,
+                        style =
+                            MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Text(
+                        text = "Allow camera access or import a receipt from your gallery.",
+                        color = Color.White.copy(alpha = 0.75f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(Modifier.height(20.dp))
+
+                    Button(
+                        onClick = {
+                            permissionLauncher.launch(
+                                Manifest.permission.CAMERA
+                            )
+                        }
+                    ) {
+                        Text("Allow camera")
+                    }
+                }
+            }
         }
 
+        // Top bar
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            RoundIconButton(Icons.Filled.Close, "Close camera", onClick = onClose)
+
+            IconButton(
+                onClick = onClose,
+                enabled = !isCapturing
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close scanner",
+                    tint = Color.White
+                )
+            }
+
             Text(
-                text = "Scan receipt",
+                text = if (capturedUri == null) {
+                    "Scan receipt"
+                } else {
+                    "Review receipt"
+                },
+                modifier = Modifier.weight(1f),
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
             )
-            Spacer(Modifier.size(52.dp))
+
+            Spacer(Modifier.width(48.dp))
         }
 
+        // Bottom controls
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .background(Color(0xDD0F1B3D))
                 .navigationBarsPadding()
-                .padding(bottom = 28.dp),
+                .padding(20.dp),
+
+            horizontalAlignment =
+                Alignment.CenterHorizontally
         ) {
-            HintPill("Hold steady – edges detected")
-            Spacer(Modifier.height(24.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                RoundIconButton(
-                    icon = if (flashOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
-                    description = if (flashOn) "Turn flash off" else "Turn flash on",
-                    onClick = { flashOn = !flashOn },
-                )
-                ShutterButton(onClick = { capturing = true })
-                RoundIconButton(Icons.Filled.PhotoLibrary, "Import from gallery", onClick = { capturing = true })
-            }
-        }
 
-        if (shutterFlash > 0f) {
-            Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = shutterFlash)))
-        }
-    }
-}
+            errorMessage?.let { message ->
 
-@Composable
-private fun MockReceipt(modifier: Modifier = Modifier) {
-    val ink = Color(0xFF2B2B2B)
-    val mono = FontFamily.Monospace
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .rotate(-1.5f)
-            .size(width = 240.dp, height = 372.dp)
-            .shadow(18.dp, RoundedCornerShape(6.dp))
-            .background(Color(0xFFFDFCF7), RoundedCornerShape(6.dp))
-            .padding(18.dp),
-    ) {
-        Text(MockData.SCANNED_MERCHANT.uppercase(), fontFamily = mono, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ink)
-        Text("Via Roma 12 · Table 4", fontFamily = mono, fontSize = 10.sp, color = Color.Gray)
-        DashedDivider()
-        MockData.scannedItems.forEach { (name, price) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 Text(
-                    text = name,
-                    fontFamily = mono,
-                    fontSize = 11.sp,
-                    color = ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    text = message,
+                    color = Color(0xFFFCA5A5),
+                    textAlign = TextAlign.Center,
+                    style =
+                        MaterialTheme.typography.bodySmall
                 )
-                Text(String.format(Locale.US, "%.2f", price), fontFamily = mono, fontSize = 11.sp, color = ink)
+
+                Spacer(Modifier.height(12.dp))
+            }
+
+            if (capturedUri != null) {
+
+                Text(
+                    text = "Make sure all receipt items are visible.",
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        onCaptured(capturedUri)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Use receipt")
+                }
+
+                TextButton(
+                    onClick = { resetCapture() }
+                ) {
+                    Text(
+                        text = "Retake photo",
+                        color = Color.White
+                    )
+                }
+
+            } else {
+
+                Text(
+                    text = if (isCapturing) {
+                        "Capturing receipt..."
+                    } else {
+                        "Position the receipt inside the frame"
+                    },
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.SpaceEvenly,
+                    verticalAlignment =
+                        Alignment.CenterVertically
+                ) {
+
+                    // Torch
+                    IconButton(
+                        enabled =
+                            camera?.cameraInfo?.hasFlashUnit() == true
+                                    && !isCapturing,
+
+                        onClick = {
+                            flashOn = !flashOn
+
+                            camera?.cameraControl
+                                ?.enableTorch(flashOn)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (flashOn) {
+                                Icons.Filled.FlashOn
+                            } else {
+                                Icons.Filled.FlashOff
+                            },
+                            contentDescription = "Toggle flashlight",
+                            tint = Color.White
+                        )
+                    }
+
+                    // Shutter
+                    FilledIconButton(
+                        onClick = { captureReceipt() },
+
+                        enabled =
+                            imageCapture != null &&
+                                    !isCapturing,
+
+                        modifier = Modifier.size(76.dp),
+
+                        shape = CircleShape,
+
+                        colors = IconButtonDefaults
+                            .filledIconButtonColors(
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF2563EB)
+                            )
+                    ) {
+
+                        if (isCapturing) {
+
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(30.dp),
+                                strokeWidth = 3.dp
+                            )
+
+                        } else {
+
+                            Box(
+                                modifier = Modifier
+                                    .size(58.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        3.dp,
+                                        Color(0xFF2563EB),
+                                        CircleShape
+                                    )
+                            )
+                        }
+                    }
+
+                    // Gallery
+                    IconButton(
+                        enabled = !isCapturing,
+
+                        onClick = {
+                            galleryLauncher.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts
+                                        .PickVisualMedia.ImageOnly
+                                )
+                            )
+                        }
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Filled.PhotoLibrary,
+                            contentDescription =
+                                "Import from gallery",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                TextButton(
+                    enabled = !isCapturing,
+                    onClick = onManualEntry
+                ) {
+                    Text(
+                        text = "Enter receipt manually",
+                        color = Color.White
+                    )
+                }
             }
         }
-        DashedDivider()
-        Row(Modifier.fillMaxWidth()) {
-            Text("TOTAL", fontFamily = mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = ink, modifier = Modifier.weight(1f))
-            Text(
-                String.format(Locale.US, "%.2f", MockData.scannedItems.sumOf { it.second }),
-                fontFamily = mono,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = ink,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        Barcode()
-        Text("Grazie! Come again", fontFamily = mono, fontSize = 9.sp, color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
     }
-}
-
-@Composable
-private fun DashedDivider() {
-    Canvas(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp)
-            .height(1.dp),
-    ) {
-        drawLine(
-            color = Color.LightGray,
-            start = Offset(0f, 0f),
-            end = Offset(size.width, 0f),
-            strokeWidth = 2f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
-        )
-    }
-}
-
-@Composable
-private fun Barcode() {
-    val widths = listOf(2, 1, 3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2, 1, 3, 2, 1, 1, 2, 3, 1, 2, 1)
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(30.dp)) {
-        widths.forEach { w ->
-            Box(Modifier.width(w.dp).fillMaxHeight().background(Color(0xFF2B2B2B)))
-        }
-    }
-}
-
-/** Glowing, pulsing crop rectangle with a moving scan line. */
-@Composable
-private fun CropFrame(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "cropFrame")
-    val glow by transition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-        label = "glow",
-    )
-    val scan by transition.animateFloat(
-        initialValue = 0.04f,
-        targetValue = 0.96f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Reverse),
-        label = "scanLine",
-    )
-    Canvas(modifier) {
-        val corner = CornerRadius(20.dp.toPx())
-        // Soft glow: wide, faint strokes underneath the main border.
-        listOf(22.dp, 14.dp, 8.dp).forEach { width ->
-            drawRoundRect(
-                color = ScanGlow.copy(alpha = 0.12f * glow),
-                cornerRadius = corner,
-                style = Stroke(width = width.toPx()),
-            )
-        }
-        drawRoundRect(color = ScanGlow, cornerRadius = corner, style = Stroke(width = 3.dp.toPx()))
-
-        val y = size.height * scan
-        drawLine(
-            brush = Brush.horizontalGradient(listOf(Color.Transparent, ScanGlow, Color.Transparent)),
-            start = Offset(12.dp.toPx(), y),
-            end = Offset(size.width - 12.dp.toPx(), y),
-            strokeWidth = 3.dp.toPx(),
-        )
-    }
-}
-
-@Composable
-private fun HintPill(text: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.55f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(Success))
-        Spacer(Modifier.width(8.dp))
-        Text(text, color = Color.White, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun RoundIconButton(icon: ImageVector, description: String, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(52.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.14f)),
-    ) {
-        Icon(icon, contentDescription = description, tint = Color.White)
-    }
-}
-
-@Composable
-private fun ShutterButton(onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Box(
-        modifier = Modifier
-            .scale(if (pressed) 0.92f else 1f)
-            .size(82.dp)
-            .border(4.dp, Color.White, CircleShape)
-            .padding(8.dp)
-            .clip(CircleShape)
-            .background(Color.White)
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Take photo" },
-    )
 }

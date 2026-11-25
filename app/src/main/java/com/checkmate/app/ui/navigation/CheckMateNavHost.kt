@@ -36,13 +36,34 @@ fun CheckMateNavHost(navController: NavHostController = rememberNavController())
                 onScanClick = { navController.navigate(Routes.SCAN) },
             )
         }
+
         composable(Routes.SCAN) {
+
             ScanScreen(
-                onClose = { navController.popBackStack() },
-                onCaptured = {
-                    splitViewModel.startNewScan()
-                    navController.navigate(Routes.EDIT_RECEIPT)
+
+                onClose = {
+                    navController.popBackStack()
                 },
+
+                onCaptured = { imageUri ->
+
+                    splitViewModel.startReceiptFromImage(
+                        imageUri
+                    )
+
+                    navController.navigate(
+                        Routes.EDIT_RECEIPT
+                    )
+                },
+
+                onManualEntry = {
+
+                    splitViewModel.startManualReceipt()
+
+                    navController.navigate(
+                        Routes.EDIT_RECEIPT
+                    )
+                }
             )
         }
         composable(Routes.EDIT_RECEIPT) {
